@@ -13,7 +13,8 @@
   const TAU = Math.PI * 2;
 
   const view = { w: 0, h: 0, dpr: 1, scale: 1, cx: 0, cy: 0, ui: 1, topPad: 0, bottomPad: 0 };
-  let canvas, ctx, stars, glowCache = {};
+  let canvas, ctx, stars, glowCache = {}, spriteCache = {};
+  let frameDt = 1 / 60;
   let maxDpr = Math.min(window.devicePixelRatio || 1, (navigator.hardwareConcurrency || 4) <= 4 ? 1.5 : 2);
   let quality = 1; // 1 = full, 0 = reduced effects
   const perf = { acc: 0, frames: 0, slow: 0 };
@@ -43,6 +44,7 @@
     view.cx = view.w / 2;
     view.cy = view.topPad + availH / 2;
     view.ui = Math.max(0.8, Math.min(1.35, view.scale * 2));
+    spriteCache = {};
     buildStars();
   }
 
@@ -98,6 +100,35 @@
     g.fillStyle = gr;
     g.fillRect(0, 0, 64, 64);
     glowCache[color] = c;
+    return c;
+  }
+
+  /**
+   * Pre-rendered planet body (lit from the left). Drawn rotated so the lit
+   * side faces the sun: one drawImage per planet instead of a new gradient.
+   */
+  function planetSprite(color, owned, r) {
+    const key = color + (owned ? '1' : '0') + Math.round(r * 4);
+    let c = spriteCache[key];
+    if (c) return c;
+    const d = view.dpr;
+    const size = Math.ceil((r * 2 + 2) * d);
+    c = document.createElement('canvas');
+    c.width = c.height = size;
+    const g = c.getContext('2d');
+    const m = size / 2;
+    const rr = r * d;
+    const gr = g.createRadialGradient(m - rr * 0.45, m, rr * 0.1, m, m, rr);
+    gr.addColorStop(0, owned ? hexA(color, 0.95) : '#9aa3b5');
+    gr.addColorStop(0.7, owned ? hexA(color, 0.45) : '#3c4456');
+    gr.addColorStop(1, '#141826');
+    g.fillStyle = '#141826';
+    g.beginPath();
+    g.arc(m, m, rr, 0, TAU);
+    g.fill();
+    g.fillStyle = gr;
+    g.fill();
+    spriteCache[key] = c;
     return c;
   }
 
@@ -188,6 +219,7 @@
    */
   function draw(store, t, aim, dt, wallT) {
     const m = store.match;
+    frameDt = dt;
     adaptQuality(dt);
     Fx.update(dt);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -380,18 +412,17 @@
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
     }
-    // Body, lit from the sun.
-    const len = Math.hypot(wp.x, wp.y) || 1;
-    const lx = s.x - (wp.x / len) * r * 0.45;
-    const ly = s.y - (wp.y / len) * r * 0.45;
-    const g = ctx.createRadialGradient(lx, ly, r * 0.1, s.x, s.y, r);
-    g.addColorStop(0, owned ? hexA(color, 0.95) : '#9aa3b5');
-    g.addColorStop(0.7, owned ? hexA(color, 0.45) : '#3c4456');
-    g.addColorStop(1, '#141826');
-    ctx.fillStyle = g;
+    // Body, lit from the sun (cached sprite, rotated toward the sun).
+    const spr = planetSprite(color, !!owned, r);
+    const half = spr.width / view.dpr / 2;
+    const rot = Math.atan2(-wp.y, -wp.x) - Math.PI;
+    ctx.save();
+    ctx.translate(s.x, s.y);
+    ctx.rotate(rot);
+    ctx.drawImage(spr, -half, -half, half * 2, half * 2);
+    ctx.restore();
     ctx.beginPath();
     ctx.arc(s.x, s.y, r, 0, TAU);
-    ctx.fill();
     ctx.lineWidth = owned ? 2.2 : 1;
     ctx.strokeStyle = owned ? color : 'rgba(200,210,230,0.35)';
     ctx.stroke();
@@ -408,7 +439,7 @@
     }
     // Capture flash.
     if (p.flash > 0) {
-      p.flash = Math.max(0, p.flash - 1 / 60);
+      p.flash = Math.max(0, p.flash - frameDt);
       ctx.strokeStyle = `rgba(255,255,255,${p.flash})`;
       ctx.lineWidth = 3;
       ctx.beginPath();
@@ -416,7 +447,7 @@
       ctx.stroke();
     }
     // Ship count.
-    const ships = p.owner === m.you ? Math.floor(store.displayShips(p)) : p.ships;
+    const ships = Math.floor(store.displayShips(p));
     const fs = Math.max(10, Math.min(22, r * 0.8));
     ctx.font = `700 ${fs}px system-ui, sans-serif`;
     ctx.textAlign = 'center';
@@ -573,7 +604,7 @@
   function adaptQuality(dt) {
     perf.acc += dt;
     perf.frames++;
-    if (perf.acc < 2) return;
+    if (perf.acc < 1.5) return;
     const avg = perf.acc / perf.frames;
     perf.acc = 0;
     perf.frames = 0;

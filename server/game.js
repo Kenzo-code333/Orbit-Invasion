@@ -392,7 +392,7 @@ class Game {
     for (let i = 0; i < this.planets.length; i++) {
       const pl2 = this.planets[i];
       p[i * 2] = pl2.owner;
-      p[i * 2 + 1] = Math.floor(pl2.ships);
+      p[i * 2 + 1] = Math.floor(pl2.ships * 10) / 10; // 1 decimal: clients interpolate production
     }
     const a = [];
     const c = [];

@@ -82,6 +82,14 @@ The server listens on port **3000** (or on `$PORT` if that's set).
 - **GitHub Codespaces:** when port 3000 pops up, click **Open in Browser**. To let friends join, open the **Ports** tab, right-click port 3000 and choose **Port Visibility → Public**, then share that URL.
 - **Claude Code on the web / other cloud sandboxes:** you can run the server and the automated tests there. Most sandboxes don't give you a public URL, so to play with friends, deploy to Render as described above.
 
+### Offline single-file build (preview without a server)
+
+```bash
+npm run build:offline
+```
+
+This writes `dist/orbit-wars-offline.html`. It is one self-contained page that runs the real server code (rooms, simulation, bots) inside the browser tab. Use it to preview the game anywhere a plain HTML page works, such as a claude.ai artifact, or to play against bots with no internet. Online multiplayer with friends still needs the server (`npm start` or Render).
+
 ### Tests
 
 ```bash

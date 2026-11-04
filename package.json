@@ -1,12 +1,13 @@
 {
   "name": "orbit-wars",
   "version": "1.0.0",
-  "description": "Orbit Wars — a real-time multiplayer browser strategy game: capture planets orbiting a sun.",
+  "description": "Orbit Wars \u2014 a real-time multiplayer browser strategy game: capture planets orbiting a sun.",
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
     "simulate": "node scripts/simulate.js",
-    "test": "node scripts/simulate.js 8 && node scripts/socket-test.js"
+    "test": "node scripts/simulate.js 8 && node scripts/socket-test.js",
+    "build:offline": "node scripts/build-offline.js"
   },
   "engines": {
     "node": ">=18"

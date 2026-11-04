@@ -80,7 +80,7 @@
   Store.prototype.init = function (init) {
     const planets = init.planets.map(([ring, a0], id) => {
       const R = C.RINGS[ring];
-      return { id, ring, a0, orbit: R.radius, w: R.omega, size: R.size, prod: R.production, cap: R.cap, owner: C.NEUTRAL, ships: 0, flash: 0 };
+      return { id, ring, a0, orbit: R.radius, w: R.omega, size: R.size, prod: R.production, cap: R.cap, owner: C.NEUTRAL, ships: 0, shipsT: 0, flash: 0 };
     });
     const players = [];
     for (const p of init.players) players[p.id] = Object.assign({ alive: true }, p);
@@ -148,6 +148,7 @@
       }
       pl.owner = owner;
       pl.ships = ships;
+      pl.shipsT = s.t;
     }
     if (s.c) {
       for (let i = 0; i < s.c.length; i += 2) {
@@ -172,6 +173,7 @@
   Store.prototype.advance = function (t) {
     const m = this.match;
     if (!m) return;
+    this.t = t;
     while (m.queue.length && m.queue[0].t <= t) this.apply(m.queue.shift(), false);
     // Safety: never let the queue grow huge (e.g. tab in background).
     while (m.queue.length > 60) this.apply(m.queue.shift(), true);
@@ -187,9 +189,15 @@
     });
   };
 
-  /** Ships on a planet as displayed, minus launches we predicted locally. */
+  /**
+   * Ships on a planet right now. Owned planets produce at a known rate, so we
+   * extrapolate from the last snapshot: counts tick up smoothly every frame
+   * instead of jumping 15 times a second. Locally predicted launches are
+   * subtracted so your own planet reacts instantly.
+   */
   Store.prototype.displayShips = function (pl) {
     let s = pl.ships;
+    if (pl.owner >= 0 && this.t > pl.shipsT && s < pl.cap) s = Math.min(pl.cap, s + pl.prod * Math.min(0.5, this.t - pl.shipsT));
     const m = this.match;
     for (const g of m.ghosts) if (g.planet === pl.id) s -= g.n;
     return Math.max(0, s);
@@ -204,7 +212,7 @@
     for (const pl of m.planets) {
       if (pl.owner >= 0 && byId[pl.owner]) {
         byId[pl.owner].planets++;
-        byId[pl.owner].ships += pl.owner === m.you ? this.displayShips(pl) : pl.ships;
+        byId[pl.owner].ships += Math.floor(this.displayShips(pl));
       }
     }
     for (const f of m.fleets.values()) {

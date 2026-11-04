@@ -30,9 +30,13 @@
   function homeError(msg) {
     $('home-error').textContent = msg || '';
   }
+  const OFFLINE = !!window.OW_OFFLINE; // single-file build: server runs in this tab
   function setUrlRoom(code) {
+    if (OFFLINE) return;
     const url = code ? '/?room=' + code : '/';
-    if (location.pathname + location.search !== url) history.replaceState(null, '', url);
+    try {
+      if (location.pathname + location.search !== url) history.replaceState(null, '', url);
+    } catch (e) {}
   }
   function goHome(msg) {
     state.code = null;
@@ -64,7 +68,14 @@
   try {
     $('name').value = localStorage.getItem('ow_name') || '';
   } catch (e) {}
-  const urlRoom = (new URLSearchParams(location.search).get('room') || '').toUpperCase().replace(/[^A-Z]/g, '');
+  if (OFFLINE) {
+    // No network here: online rooms need the deployed server.
+    $('code').parentElement.classList.add('hidden');
+    document.querySelector('.share').classList.add('hidden');
+    $('btn-create').textContent = 'Create local game';
+    document.querySelector('.tagline').textContent = 'Offline preview: you vs bots, running in this page.';
+  }
+  const urlRoom = OFFLINE ? '' : (new URLSearchParams(location.search).get('room') || '').toUpperCase().replace(/[^A-Z]/g, '');
   if (urlRoom) {
     $('join-direct').classList.remove('hidden');
     $('direct-code').textContent = urlRoom;
@@ -156,9 +167,15 @@
   const canFs = fsEl.requestFullscreen || fsEl.webkitRequestFullscreen;
   if (!canFs) $('btn-full').classList.add('hidden');
   $('btn-full').onclick = () => {
-    const isFs = document.fullscreenElement || document.webkitFullscreenElement;
-    if (isFs) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
-    else (fsEl.requestFullscreen || fsEl.webkitRequestFullscreen).call(fsEl);
+    try {
+      const isFs = document.fullscreenElement || document.webkitFullscreenElement;
+      const p = isFs
+        ? (document.exitFullscreen || document.webkitExitFullscreen).call(document)
+        : (fsEl.requestFullscreen || fsEl.webkitRequestFullscreen).call(fsEl);
+      if (p && p.catch) p.catch(() => UI.toast('Fullscreen is not available here'));
+    } catch (e) {
+      UI.toast('Fullscreen is not available here');
+    }
   };
   document.addEventListener('fullscreenchange', () => setTimeout(Render.resize, 100));
   document.addEventListener('webkitfullscreenchange', () => setTimeout(Render.resize, 100));
@@ -166,7 +183,13 @@
   $('btn-menu').onclick = () => {
     const m = store.match;
     const playing = m && !m.ended && m.you >= 0 && m.players[m.you] && m.players[m.you].alive;
-    if (playing && !confirm('Leave the match? A bot will take over your planets.')) return;
+    // Two taps to leave (no confirm() dialog: it is blocked in embedded views).
+    if (playing && !(state.leaveArmed && performance.now() - state.leaveArmed < 3000)) {
+      state.leaveArmed = performance.now();
+      UI.toast('Tap ✕ again to leave — a bot will take over your planets', 3000);
+      return;
+    }
+    state.leaveArmed = 0;
     Net.send('leave');
     goHome();
   };
@@ -182,7 +205,7 @@
   // ------------------------------------------------------------ network
   Net.connect({
     connect() {
-      $('conn-status').textContent = 'Connected';
+      $('conn-status').textContent = OFFLINE ? 'Offline mode · deploy the server to play with friends' : 'Connected';
       // Reloaded the page mid-game? Jump straight back in.
       let last = null;
       try {
@@ -301,7 +324,7 @@
   });
 
   // ------------------------------------------------------------ input
-  Input.getState = () => (store.match ? { store, t: renderTime() } : null);
+  Input.getState = () => (store.match ? { store, t: state.frameT !== undefined ? state.frameT : renderTime() } : null);
   Input.onLaunch = (planet, angle, pctIndex) => {
     const m = store.match;
     if (!m || m.ended || renderTime() < 0) return;
@@ -310,9 +333,14 @@
   };
 
   // ------------------------------------------------------------ main loop
-  function renderTime() {
+  /**
+   * Match time to draw. Within a frame we use the rAF timestamp so every
+   * planet, fleet and input test in that frame agrees on one instant.
+   */
+  function renderTime(frameNow) {
     const m = store.match;
-    let t = Net.clock.now() - C.INTERP_DELAY;
+    const local = frameNow !== undefined ? frameNow / 1000 : Net.clock.local();
+    let t = local + Net.clock.offset - C.INTERP_DELAY;
     if (m && m.ended && m.endT !== undefined) t = Math.min(t, m.endT);
     return t;
   }
@@ -329,7 +357,8 @@
     const m = store.match;
     let t = 0;
     if (m) {
-      t = renderTime();
+      t = renderTime(now);
+      state.frameT = t;
       store.advance(t);
       timeEvents(t);
       if (now - state.lastHud > 200) {
